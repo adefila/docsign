@@ -173,7 +173,7 @@ export default function SignPage() {
     try {
       const { embedAll } = await import('@/lib/embedSignature');
       const signed = await embedAll(pdfBytes, placedSigs, textAnnotations);
-      const blob = new Blob([signed], { type: 'application/pdf' });
+      const blob = new Blob([signed as BlobPart], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
