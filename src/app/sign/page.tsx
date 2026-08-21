@@ -201,11 +201,18 @@ export default function SignPage() {
   }, []);
 
   const handleDownload = async () => {
-    if (!pdfBytes || (placedSigs.length === 0 && textAnnotations.length === 0)) return;
+    if (placedSigs.length === 0 && textAnnotations.length === 0) return;
     setIsDownloading(true);
     try {
+      // Decode fresh from sessionStorage every time to avoid detached-buffer issues
+      const base64 = sessionStorage.getItem('docsign_pdf');
+      if (!base64) throw new Error('PDF data not found — please re-upload the file.');
+      const binary = atob(base64);
+      const freshBytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) freshBytes[i] = binary.charCodeAt(i);
+
       const { embedAll } = await import('@/lib/embedSignature');
-      const signed = await embedAll(pdfBytes, placedSigs, textAnnotations);
+      const signed = await embedAll(freshBytes, placedSigs, textAnnotations);
       const blob = new Blob([signed as BlobPart], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
