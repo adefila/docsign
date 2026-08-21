@@ -46,7 +46,9 @@ export default function PDFViewer({
   const [pages, setPages] = useState<PDFPageProxy[]>([]);
   const [pendingText, setPendingText] = useState<PendingText | null>(null);
   const [inputValue, setInputValue] = useState('');
-  const [containerWidth, setContainerWidth] = useState(9999);
+  const [containerWidth, setContainerWidth] = useState(() =>
+    typeof window !== 'undefined' ? Math.max(100, window.innerWidth - 64) : 800
+  );
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
