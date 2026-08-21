@@ -29,7 +29,7 @@ export default function UploadPage() {
   });
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4">
+    <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4 py-10">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-10">
@@ -46,7 +46,7 @@ export default function UploadPage() {
         {/* Dropzone */}
         <div
           {...getRootProps()}
-          className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all duration-200 ${
+          className={`border-2 border-dashed rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-all duration-200 ${
             isDragActive
               ? 'border-indigo-500 bg-indigo-50 scale-[1.02]'
               : 'border-gray-300 bg-white hover:border-indigo-400 hover:bg-gray-50 shadow-sm'
