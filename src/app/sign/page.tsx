@@ -46,6 +46,10 @@ export default function SignPage() {
     setPlacedSigs(prev => prev.map((s, i) => (i === index ? { ...s, x, y } : s)));
   }, []);
 
+  const handleResizeSig = useCallback((index: number, width: number, height: number) => {
+    setPlacedSigs(prev => prev.map((s, i) => (i === index ? { ...s, width, height } : s)));
+  }, []);
+
   const handleDeleteSig = useCallback((index: number) => {
     setPlacedSigs(prev => prev.filter((_, i) => i !== index));
   }, []);
@@ -56,6 +60,10 @@ export default function SignPage() {
 
   const handleUpdateText = useCallback((index: number, x: number, y: number) => {
     setTextAnnotations(prev => prev.map((t, i) => (i === index ? { ...t, x, y } : t)));
+  }, []);
+
+  const handleResizeText = useCallback((index: number, fontSize: number) => {
+    setTextAnnotations(prev => prev.map((t, i) => (i === index ? { ...t, fontSize } : t)));
   }, []);
 
   const handleDeleteText = useCallback((index: number) => {
@@ -196,9 +204,11 @@ export default function SignPage() {
           signatureDataUrl={signatureDataUrl}
           onPlace={handlePlace}
           onUpdateSig={handleUpdateSig}
+          onResizeSig={handleResizeSig}
           onDeleteSig={handleDeleteSig}
           onPlaceText={handlePlaceText}
           onUpdateText={handleUpdateText}
+          onResizeText={handleResizeText}
           onDeleteText={handleDeleteText}
         />
       </main>

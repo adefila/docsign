@@ -6,7 +6,7 @@ import type { PlacedSig, TextAnnotation } from '@/lib/embedSignature';
 const RENDER_SCALE = 1.5;
 const SIG_W = 200;
 const SIG_H = 70;
-const DEFAULT_FONT_SIZE = 18; // canvas px at RENDER_SCALE
+const DEFAULT_FONT_SIZE = 18;
 
 interface PendingText {
   pageIndex: number;
@@ -23,17 +23,19 @@ interface Props {
   signatureDataUrl: string | null;
   onPlace: (sig: PlacedSig) => void;
   onUpdateSig: (index: number, x: number, y: number) => void;
+  onResizeSig: (index: number, width: number, height: number) => void;
   onDeleteSig: (index: number) => void;
   onPlaceText: (ann: TextAnnotation) => void;
   onUpdateText: (index: number, x: number, y: number) => void;
+  onResizeText: (index: number, fontSize: number) => void;
   onDeleteText: (index: number) => void;
 }
 
 export default function PDFViewer({
   pdfBytes, placedSigs, textAnnotations,
   isPlacingMode, isTextMode, signatureDataUrl,
-  onPlace, onUpdateSig, onDeleteSig,
-  onPlaceText, onUpdateText, onDeleteText,
+  onPlace, onUpdateSig, onResizeSig, onDeleteSig,
+  onPlaceText, onUpdateText, onResizeText, onDeleteText,
 }: Props) {
   const [pages, setPages] = useState<PDFPageProxy[]>([]);
   const [pendingText, setPendingText] = useState<PendingText | null>(null);
@@ -89,14 +91,7 @@ export default function PDFViewer({
 
   const commitText = () => {
     if (!pendingText || !inputValue.trim()) { setPendingText(null); return; }
-    onPlaceText({
-      pageIndex: pendingText.pageIndex,
-      x: pendingText.x,
-      y: pendingText.y,
-      text: inputValue.trim(),
-      fontSize: DEFAULT_FONT_SIZE,
-      renderScale: RENDER_SCALE,
-    });
+    onPlaceText({ pageIndex: pendingText.pageIndex, x: pendingText.x, y: pendingText.y, text: inputValue.trim(), fontSize: DEFAULT_FONT_SIZE, renderScale: RENDER_SCALE });
     setPendingText(null);
     setInputValue('');
   };
@@ -140,6 +135,7 @@ export default function PDFViewer({
                   key={sig.idx}
                   sig={sig}
                   onUpdate={(x, y) => onUpdateSig(sig.idx, x, y)}
+                  onResize={(w, h) => onResizeSig(sig.idx, w, h)}
                   onDelete={() => onDeleteSig(sig.idx)}
                 />
               ))}
@@ -149,6 +145,7 @@ export default function PDFViewer({
                   key={ann.idx}
                   ann={ann}
                   onUpdate={(x, y) => onUpdateText(ann.idx, x, y)}
+                  onResize={fs => onResizeText(ann.idx, fs)}
                   onDelete={() => onDeleteText(ann.idx)}
                 />
               ))}
@@ -182,15 +179,19 @@ export default function PDFViewer({
   );
 }
 
-function DraggableSig({ sig, onUpdate, onDelete }: {
+function DraggableSig({ sig, onUpdate, onResize, onDelete }: {
   sig: PlacedSig & { idx: number };
   onUpdate: (x: number, y: number) => void;
+  onResize: (width: number, height: number) => void;
   onDelete: () => void;
 }) {
   const dragging = useRef(false);
+  const resizing = useRef(false);
   const origin = useRef({ mx: 0, my: 0, sx: 0, sy: 0 });
+  const startSize = useRef({ w: 0, h: 0 });
+  const aspectRatio = useRef(sig.width / sig.height);
 
-  const onMouseDown = (e: React.MouseEvent) => {
+  const onMoveMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
     dragging.current = true;
     origin.current = { mx: e.clientX, my: e.clientY, sx: sig.x, sy: sig.y };
@@ -203,20 +204,60 @@ function DraggableSig({ sig, onUpdate, onDelete }: {
     window.addEventListener('mouseup', onUp);
   };
 
+  const onResizeMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    resizing.current = true;
+    startSize.current = { w: sig.width, h: sig.height };
+    aspectRatio.current = sig.width / sig.height;
+    const startX = e.clientX;
+    const onMove = (me: MouseEvent) => {
+      if (!resizing.current) return;
+      const dx = me.clientX - startX;
+      const newW = Math.max(40, startSize.current.w + dx);
+      onResize(newW, newW / aspectRatio.current);
+    };
+    const onUp = () => { resizing.current = false; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   return (
-    <div className="absolute select-none group" style={{ left: sig.x, top: sig.y, width: sig.width, height: sig.height }} onMouseDown={onMouseDown}>
+    <div
+      className="absolute select-none group"
+      style={{ left: sig.x, top: sig.y, width: sig.width, height: sig.height }}
+      onMouseDown={onMoveMouseDown}
+    >
       <img src={sig.dataUrl} alt="signature" className="w-full h-full object-contain cursor-move" draggable={false} />
+
+      {/* Delete */}
       <button
-        className="absolute -top-2.5 -right-2.5 w-5 h-5 bg-red-500 text-white rounded-full text-[11px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+        className="absolute -top-2.5 -right-2.5 w-5 h-5 bg-red-500 text-white rounded-full text-[11px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-10"
         onClick={e => { e.stopPropagation(); onDelete(); }}
       >×</button>
+
+      {/* Resize handle — bottom-right corner */}
+      <div
+        className="absolute bottom-0 right-0 w-4 h-4 bg-indigo-500 rounded-tl-md opacity-0 group-hover:opacity-100 transition-opacity cursor-se-resize z-10 flex items-center justify-center"
+        onMouseDown={onResizeMouseDown}
+        title="Drag to resize"
+      >
+        <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M8 2L2 8M5 2L2 5M8 5L5 8" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+        </svg>
+      </div>
+
+      {/* Size badge */}
+      <div className="absolute -bottom-5 left-0 text-[10px] text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+        {Math.round(sig.width)} × {Math.round(sig.height)} px
+      </div>
     </div>
   );
 }
 
-function DraggableText({ ann, onUpdate, onDelete }: {
+function DraggableText({ ann, onUpdate, onResize, onDelete }: {
   ann: TextAnnotation & { idx: number };
   onUpdate: (x: number, y: number) => void;
+  onResize: (fontSize: number) => void;
   onDelete: () => void;
 }) {
   const dragging = useRef(false);
@@ -237,15 +278,38 @@ function DraggableText({ ann, onUpdate, onDelete }: {
 
   return (
     <div
-      className="absolute select-none group cursor-move whitespace-nowrap"
+      className="absolute select-none group cursor-move"
       style={{ left: ann.x, top: ann.y - ann.fontSize, fontSize: ann.fontSize, lineHeight: 1.2, color: '#111' }}
       onMouseDown={onMouseDown}
     >
-      {ann.text}
-      <button
-        className="absolute -top-2.5 -right-2.5 w-5 h-5 bg-red-500 text-white rounded-full text-[11px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
-        onClick={e => { e.stopPropagation(); onDelete(); }}
-      >×</button>
+      <span className="whitespace-nowrap">{ann.text}</span>
+
+      {/* Controls row — appears on hover */}
+      <div className="absolute -top-7 left-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+        {/* Font size decrease */}
+        <button
+          className="w-5 h-5 rounded bg-gray-700 text-white text-[11px] font-bold flex items-center justify-center hover:bg-gray-900 shadow"
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onResize(Math.max(8, ann.fontSize - 2)); }}
+        >−</button>
+
+        {/* Font size display */}
+        <span className="text-[10px] font-medium text-white bg-gray-700 rounded px-1.5 py-0.5 leading-none">{ann.fontSize}px</span>
+
+        {/* Font size increase */}
+        <button
+          className="w-5 h-5 rounded bg-gray-700 text-white text-[11px] font-bold flex items-center justify-center hover:bg-gray-900 shadow"
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onResize(Math.min(120, ann.fontSize + 2)); }}
+        >+</button>
+
+        {/* Delete */}
+        <button
+          className="w-5 h-5 bg-red-500 text-white rounded text-[11px] flex items-center justify-center hover:bg-red-600 shadow ml-1"
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onDelete(); }}
+        >×</button>
+      </div>
     </div>
   );
 }
