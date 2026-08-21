@@ -25,14 +25,36 @@ function formatDate(iso: string) {
   return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+function storageKey(name: string) {
+  return `docsign_ann_${name}`;
+}
+
+function saveAnnotations(name: string, sigs: PlacedSig[], texts: TextAnnotation[]) {
+  try {
+    localStorage.setItem(storageKey(name), JSON.stringify({ placedSigs: sigs, textAnnotations: texts }));
+  } catch {}
+}
+
+function loadAnnotations(name: string): Snapshot | null {
+  try {
+    const raw = localStorage.getItem(storageKey(name));
+    if (!raw) return null;
+    return JSON.parse(raw) as Snapshot;
+  } catch {
+    return null;
+  }
+}
+
 export default function SignPage() {
   const router = useRouter();
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [fileName, setFileName] = useState('document.pdf');
+  const fileNameRef = useRef('document.pdf');
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [showPad, setShowPad] = useState(false);
   const [activeMode, setActiveMode] = useState<ActiveMode>('none');
   const [isDownloading, setIsDownloading] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Live annotation state — updated freely (drag, resize)
   const [placedSigs, setPlacedSigs] = useState<PlacedSig[]>([]);
@@ -54,6 +76,7 @@ export default function SignPage() {
   const pushSnapshot = useCallback((sigs: PlacedSig[], texts: TextAnnotation[]) => {
     setPlacedSigs(sigs);
     setTextAnnotations(texts);
+    saveAnnotations(fileNameRef.current, sigs, texts);
     setHistory(prev => {
       const cut = prev.slice(0, histIdxRef.current + 1);
       return [...cut, { placedSigs: sigs, textAnnotations: texts }].slice(-MAX_HISTORY);
@@ -123,7 +146,18 @@ export default function SignPage() {
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     setPdfBytes(bytes);
-    if (name) setFileName(name);
+    if (name) {
+      setFileName(name);
+      fileNameRef.current = name;
+      const saved = loadAnnotations(name);
+      if (saved) {
+        setPlacedSigs(saved.placedSigs);
+        setTextAnnotations(saved.textAnnotations);
+        setHistory([{ placedSigs: [], textAnnotations: [] }, saved]);
+        setHistIdx(1);
+        histIdxRef.current = 1;
+      }
+    }
   }, [router]);
 
   const handleConfirmSignature = (dataUrl: string) => {
@@ -247,6 +281,29 @@ export default function SignPage() {
             </button>
           ) : (
             <>
+              {/* Clear */}
+              {totalAnnotations > 0 && !showClearConfirm && (
+                <button onClick={() => setShowClearConfirm(true)} title="Clear all annotations"
+                  className="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              )}
+              {showClearConfirm && (
+                <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
+                  <span className="text-xs text-red-600 font-medium">Clear all?</span>
+                  <button onClick={() => {
+                    setPlacedSigs([]); setTextAnnotations([]);
+                    setHistory([{ placedSigs: [], textAnnotations: [] }]);
+                    setHistIdx(0); histIdxRef.current = 0;
+                    try { localStorage.removeItem(storageKey(fileNameRef.current)); } catch {}
+                    setShowClearConfirm(false);
+                  }} className="text-xs font-semibold text-red-600 hover:text-red-800 px-1">Yes</button>
+                  <button onClick={() => setShowClearConfirm(false)} className="text-xs text-gray-500 hover:text-gray-700 px-1">No</button>
+                </div>
+              )}
+
               {/* Undo / Redo */}
               <button onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)"
                 className="p-2 text-gray-500 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-gray-100">
