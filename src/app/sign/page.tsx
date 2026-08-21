@@ -142,10 +142,9 @@ export default function SignPage() {
     const base64 = sessionStorage.getItem('docsign_pdf');
     const name = sessionStorage.getItem('docsign_name');
     if (!base64) { router.push('/'); return; }
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    setPdfBytes(bytes);
+    const res = await fetch(`data:application/pdf;base64,${base64}`);
+    const buf = await res.arrayBuffer();
+    setPdfBytes(new Uint8Array(buf));
     if (name) {
       setFileName(name);
       fileNameRef.current = name;

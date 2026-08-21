@@ -24,7 +24,7 @@ export async function embedAll(
   signatures: PlacedSig[],
   texts: TextAnnotation[],
 ): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(pdfBytes);
+  const doc = await PDFDocument.load(pdfBytes.slice());
   const font = await doc.embedFont(StandardFonts.Helvetica);
 
   for (const sig of signatures) {
