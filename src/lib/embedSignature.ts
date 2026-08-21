@@ -17,6 +17,12 @@ export interface TextAnnotation {
   text: string;
   fontSize: number;
   renderScale: number;
+  color?: string; // hex e.g. '#111111'
+}
+
+function hexToRgb(hex: string) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
 }
 
 export async function embedAll(
@@ -30,35 +36,29 @@ export async function embedAll(
   for (const sig of signatures) {
     const page = doc.getPage(sig.pageIndex);
     const { height: pageHeight } = page.getSize();
-
     const [mimeHeader, base64] = sig.dataUrl.split(',');
     const imgBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
     const isJpeg = mimeHeader.includes('jpeg') || mimeHeader.includes('jpg');
     const embeddedImg = isJpeg ? await doc.embedJpg(imgBytes) : await doc.embedPng(imgBytes);
-
     const pdfX = sig.x / sig.renderScale;
     const sigWidthPdf = sig.width / sig.renderScale;
     const sigHeightPdf = sig.height / sig.renderScale;
     const pdfY = pageHeight - (sig.y / sig.renderScale) - sigHeightPdf;
-
     page.drawImage(embeddedImg, { x: pdfX, y: pdfY, width: sigWidthPdf, height: sigHeightPdf });
   }
 
   for (const ann of texts) {
     const page = doc.getPage(ann.pageIndex);
     const { height: pageHeight } = page.getSize();
-
     const pdfFontSize = ann.fontSize / ann.renderScale;
     const pdfX = ann.x / ann.renderScale;
-    // ann.y is the baseline in canvas space; PDF origin is bottom-left
     const pdfY = pageHeight - (ann.y / ann.renderScale);
-
     page.drawText(ann.text, {
       x: pdfX,
       y: pdfY,
       size: pdfFontSize,
       font,
-      color: rgb(0, 0, 0),
+      color: ann.color ? hexToRgb(ann.color) : rgb(0, 0, 0),
     });
   }
 
