@@ -9,7 +9,7 @@ const SignaturePad = dynamic(() => import('@/components/SignaturePad'), { ssr: f
 
 type ActiveMode = 'none' | 'placing-sig' | 'placing-text' | 'placing-date';
 
-interface AnnotationState {
+interface Snapshot {
   placedSigs: PlacedSig[];
   textAnnotations: TextAnnotation[];
 }
@@ -34,34 +34,67 @@ export default function SignPage() {
   const [activeMode, setActiveMode] = useState<ActiveMode>('none');
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // Undo / redo history
-  const [history, setHistory] = useState<AnnotationState[]>([{ placedSigs: [], textAnnotations: [] }]);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  // Live annotation state — updated freely (drag, resize)
+  const [placedSigs, setPlacedSigs] = useState<PlacedSig[]>([]);
+  const [textAnnotations, setTextAnnotations] = useState<TextAnnotation[]>([]);
+
+  // Undo/redo — only discrete actions (place, delete) create snapshots
+  const [history, setHistory] = useState<Snapshot[]>([{ placedSigs: [], textAnnotations: [] }]);
+  const [histIdx, setHistIdx] = useState(0);
+  const histIdxRef = useRef(0); // stable ref for snapshot writes
+
+  const canUndo = histIdx > 0;
+  const canRedo = histIdx < history.length - 1;
 
   // Date picker
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateValue, setDateValue] = useState(todayISO);
   const datePickerRef = useRef<HTMLDivElement>(null);
 
-  const current = history[historyIndex];
-  const { placedSigs, textAnnotations } = current;
-
-  const canUndo = historyIndex > 0;
-  const canRedo = historyIndex < history.length - 1;
-
-  const pushState = useCallback((next: AnnotationState) => {
+  const pushSnapshot = useCallback((sigs: PlacedSig[], texts: TextAnnotation[]) => {
+    setPlacedSigs(sigs);
+    setTextAnnotations(texts);
     setHistory(prev => {
-      const trimmed = prev.slice(0, historyIndex + 1);
-      const newHistory = [...trimmed, next].slice(-MAX_HISTORY);
-      return newHistory;
+      const cut = prev.slice(0, histIdxRef.current + 1);
+      return [...cut, { placedSigs: sigs, textAnnotations: texts }].slice(-MAX_HISTORY);
     });
-    setHistoryIndex(prev => Math.min(prev + 1, MAX_HISTORY - 1));
-  }, [historyIndex]);
+    setHistIdx(prev => {
+      const next = Math.min(prev + 1, MAX_HISTORY - 1);
+      histIdxRef.current = next;
+      return next;
+    });
+  }, []);
 
-  const undo = useCallback(() => { if (canUndo) setHistoryIndex(i => i - 1); }, [canUndo]);
-  const redo = useCallback(() => { if (canRedo) setHistoryIndex(i => i + 1); }, [canRedo]);
+  const undo = useCallback(() => {
+    if (!canUndo) return;
+    const newIdx = histIdx - 1;
+    setHistIdx(newIdx);
+    histIdxRef.current = newIdx;
+    setHistory(prev => {
+      const snap = prev[newIdx];
+      if (snap) {
+        setPlacedSigs(snap.placedSigs);
+        setTextAnnotations(snap.textAnnotations);
+      }
+      return prev;
+    });
+  }, [canUndo, histIdx]);
 
-  // Keyboard shortcuts
+  const redo = useCallback(() => {
+    if (!canRedo) return;
+    const newIdx = histIdx + 1;
+    setHistIdx(newIdx);
+    histIdxRef.current = newIdx;
+    setHistory(prev => {
+      const snap = prev[newIdx];
+      if (snap) {
+        setPlacedSigs(snap.placedSigs);
+        setTextAnnotations(snap.textAnnotations);
+      }
+      return prev;
+    });
+  }, [canRedo, histIdx]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -72,7 +105,6 @@ export default function SignPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [undo, redo]);
 
-  // Close date picker on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (datePickerRef.current && !datePickerRef.current.contains(e.target as Node)) {
@@ -100,38 +132,40 @@ export default function SignPage() {
     setActiveMode('placing-sig');
   };
 
+  // Discrete actions → push snapshot for undo history
   const handlePlace = useCallback((sig: PlacedSig) => {
-    pushState({ placedSigs: [...placedSigs, sig], textAnnotations });
+    pushSnapshot([...placedSigs, sig], textAnnotations);
     setActiveMode('none');
-  }, [pushState, placedSigs, textAnnotations]);
-
-  const handleUpdateSig = useCallback((index: number, x: number, y: number) => {
-    pushState({ placedSigs: placedSigs.map((s, i) => (i === index ? { ...s, x, y } : s)), textAnnotations });
-  }, [pushState, placedSigs, textAnnotations]);
-
-  const handleResizeSig = useCallback((index: number, width: number, height: number) => {
-    pushState({ placedSigs: placedSigs.map((s, i) => (i === index ? { ...s, width, height } : s)), textAnnotations });
-  }, [pushState, placedSigs, textAnnotations]);
+  }, [pushSnapshot, placedSigs, textAnnotations]);
 
   const handleDeleteSig = useCallback((index: number) => {
-    pushState({ placedSigs: placedSigs.filter((_, i) => i !== index), textAnnotations });
-  }, [pushState, placedSigs, textAnnotations]);
+    pushSnapshot(placedSigs.filter((_, i) => i !== index), textAnnotations);
+  }, [pushSnapshot, placedSigs, textAnnotations]);
 
   const handlePlaceText = useCallback((ann: TextAnnotation) => {
-    pushState({ placedSigs, textAnnotations: [...textAnnotations, ann] });
-  }, [pushState, placedSigs, textAnnotations]);
-
-  const handleUpdateText = useCallback((index: number, x: number, y: number) => {
-    pushState({ placedSigs, textAnnotations: textAnnotations.map((t, i) => (i === index ? { ...t, x, y } : t)) });
-  }, [pushState, placedSigs, textAnnotations]);
-
-  const handleResizeText = useCallback((index: number, fontSize: number) => {
-    pushState({ placedSigs, textAnnotations: textAnnotations.map((t, i) => (i === index ? { ...t, fontSize } : t)) });
-  }, [pushState, placedSigs, textAnnotations]);
+    pushSnapshot(placedSigs, [...textAnnotations, ann]);
+  }, [pushSnapshot, placedSigs, textAnnotations]);
 
   const handleDeleteText = useCallback((index: number) => {
-    pushState({ placedSigs, textAnnotations: textAnnotations.filter((_, i) => i !== index) });
-  }, [pushState, placedSigs, textAnnotations]);
+    pushSnapshot(placedSigs, textAnnotations.filter((_, i) => i !== index));
+  }, [pushSnapshot, placedSigs, textAnnotations]);
+
+  // Continuous actions → update live state only (no history entry)
+  const handleUpdateSig = useCallback((index: number, x: number, y: number) => {
+    setPlacedSigs(prev => prev.map((s, i) => (i === index ? { ...s, x, y } : s)));
+  }, []);
+
+  const handleResizeSig = useCallback((index: number, width: number, height: number) => {
+    setPlacedSigs(prev => prev.map((s, i) => (i === index ? { ...s, width, height } : s)));
+  }, []);
+
+  const handleUpdateText = useCallback((index: number, x: number, y: number) => {
+    setTextAnnotations(prev => prev.map((t, i) => (i === index ? { ...t, x, y } : t)));
+  }, []);
+
+  const handleResizeText = useCallback((index: number, fontSize: number) => {
+    setTextAnnotations(prev => prev.map((t, i) => (i === index ? { ...t, fontSize } : t)));
+  }, []);
 
   const handleDownload = async () => {
     if (!pdfBytes || (placedSigs.length === 0 && textAnnotations.length === 0)) return;
@@ -139,7 +173,6 @@ export default function SignPage() {
     try {
       const { embedAll } = await import('@/lib/embedSignature');
       const signed = await embedAll(pdfBytes, placedSigs, textAnnotations);
-      // Slice the exact bytes of the Uint8Array view — .buffer alone may contain extra data
       const safeBuffer = signed.buffer.slice(signed.byteOffset, signed.byteOffset + signed.byteLength) as ArrayBuffer;
       const blob = new Blob([safeBuffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
@@ -183,7 +216,6 @@ export default function SignPage() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
       <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between sticky top-0 z-40 shadow-sm">
-        {/* Left: back + filename */}
         <div className="flex items-center gap-3 min-w-0">
           <button onClick={() => router.push('/')} className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0" title="Back">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -199,14 +231,11 @@ export default function SignPage() {
             </div>
             <span className="font-medium text-gray-900 text-sm truncate max-w-[120px] sm:max-w-xs">{fileName}</span>
             {totalAnnotations > 0 && (
-              <span className="flex-shrink-0 text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5">
-                {totalAnnotations}
-              </span>
+              <span className="flex-shrink-0 text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5">{totalAnnotations}</span>
             )}
           </div>
         </div>
 
-        {/* Right: tools */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {modeHint && <span className="text-sm text-indigo-600 font-medium hidden md:block">{modeHint}</span>}
 
@@ -217,20 +246,14 @@ export default function SignPage() {
           ) : (
             <>
               {/* Undo / Redo */}
-              <button
-                onClick={undo} disabled={!canUndo}
-                className="p-2 text-gray-500 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-gray-100"
-                title="Undo (Ctrl+Z)"
-              >
+              <button onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)"
+                className="p-2 text-gray-500 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-gray-100">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 010 16H3M3 10l5-5M3 10l5 5" />
                 </svg>
               </button>
-              <button
-                onClick={redo} disabled={!canRedo}
-                className="p-2 text-gray-500 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-gray-100 mr-1"
-                title="Redo (Ctrl+Y)"
-              >
+              <button onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)"
+                className="p-2 text-gray-500 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-gray-100 mr-1">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a8 8 0 000 16h10M21 10l-5-5M21 10l-5 5" />
                 </svg>
@@ -268,9 +291,7 @@ export default function SignPage() {
                   <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50 w-64">
                     <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Select date</p>
                     <input
-                      type="date"
-                      value={dateValue}
-                      onChange={e => setDateValue(e.target.value)}
+                      type="date" value={dateValue} onChange={e => setDateValue(e.target.value)}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-indigo-300 mb-3"
                     />
                     <p className="text-xs text-gray-400 mb-3">
