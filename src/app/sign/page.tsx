@@ -173,8 +173,7 @@ export default function SignPage() {
     try {
       const { embedAll } = await import('@/lib/embedSignature');
       const signed = await embedAll(pdfBytes, placedSigs, textAnnotations);
-      const safeBuffer = signed.buffer.slice(signed.byteOffset, signed.byteOffset + signed.byteLength) as ArrayBuffer;
-      const blob = new Blob([safeBuffer], { type: 'application/pdf' });
+      const blob = new Blob([signed], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -182,7 +181,10 @@ export default function SignPage() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      console.error('Download failed:', err);
+      alert('Download failed: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsDownloading(false);
     }

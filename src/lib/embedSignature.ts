@@ -31,16 +31,17 @@ export async function embedAll(
     const page = doc.getPage(sig.pageIndex);
     const { height: pageHeight } = page.getSize();
 
-    const base64 = sig.dataUrl.split(',')[1];
+    const [mimeHeader, base64] = sig.dataUrl.split(',');
     const imgBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-    const pngImage = await doc.embedPng(imgBytes);
+    const isJpeg = mimeHeader.includes('jpeg') || mimeHeader.includes('jpg');
+    const embeddedImg = isJpeg ? await doc.embedJpg(imgBytes) : await doc.embedPng(imgBytes);
 
     const pdfX = sig.x / sig.renderScale;
     const sigWidthPdf = sig.width / sig.renderScale;
     const sigHeightPdf = sig.height / sig.renderScale;
     const pdfY = pageHeight - (sig.y / sig.renderScale) - sigHeightPdf;
 
-    page.drawImage(pngImage, { x: pdfX, y: pdfY, width: sigWidthPdf, height: sigHeightPdf });
+    page.drawImage(embeddedImg, { x: pdfX, y: pdfY, width: sigWidthPdf, height: sigHeightPdf });
   }
 
   for (const ann of texts) {
