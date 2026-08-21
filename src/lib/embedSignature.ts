@@ -50,7 +50,8 @@ export async function embedAll(
 
     const pdfFontSize = ann.fontSize / ann.renderScale;
     const pdfX = ann.x / ann.renderScale;
-    const pdfY = pageHeight - (ann.y / ann.renderScale) - pdfFontSize;
+    // ann.y is the baseline in canvas space; PDF origin is bottom-left
+    const pdfY = pageHeight - (ann.y / ann.renderScale);
 
     page.drawText(ann.text, {
       x: pdfX,
