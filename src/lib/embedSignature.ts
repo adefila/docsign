@@ -1,4 +1,4 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 export interface PlacedSig {
   pageIndex: number;
@@ -10,8 +10,22 @@ export interface PlacedSig {
   renderScale: number;
 }
 
-export async function embedSignatures(pdfBytes: Uint8Array, signatures: PlacedSig[]): Promise<Uint8Array> {
+export interface TextAnnotation {
+  pageIndex: number;
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+  renderScale: number;
+}
+
+export async function embedAll(
+  pdfBytes: Uint8Array,
+  signatures: PlacedSig[],
+  texts: TextAnnotation[],
+): Promise<Uint8Array> {
   const doc = await PDFDocument.load(pdfBytes);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
 
   for (const sig of signatures) {
     const page = doc.getPage(sig.pageIndex);
@@ -26,11 +40,23 @@ export async function embedSignatures(pdfBytes: Uint8Array, signatures: PlacedSi
     const sigHeightPdf = sig.height / sig.renderScale;
     const pdfY = pageHeight - (sig.y / sig.renderScale) - sigHeightPdf;
 
-    page.drawImage(pngImage, {
+    page.drawImage(pngImage, { x: pdfX, y: pdfY, width: sigWidthPdf, height: sigHeightPdf });
+  }
+
+  for (const ann of texts) {
+    const page = doc.getPage(ann.pageIndex);
+    const { height: pageHeight } = page.getSize();
+
+    const pdfFontSize = ann.fontSize / ann.renderScale;
+    const pdfX = ann.x / ann.renderScale;
+    const pdfY = pageHeight - (ann.y / ann.renderScale) - pdfFontSize;
+
+    page.drawText(ann.text, {
       x: pdfX,
       y: pdfY,
-      width: sigWidthPdf,
-      height: sigHeightPdf,
+      size: pdfFontSize,
+      font,
+      color: rgb(0, 0, 0),
     });
   }
 

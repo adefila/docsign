@@ -2,10 +2,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import type { PlacedSig } from '@/lib/embedSignature';
+import type { PlacedSig, TextAnnotation } from '@/lib/embedSignature';
 
 const PDFViewer = dynamic(() => import('@/components/PDFViewer'), { ssr: false });
 const SignaturePad = dynamic(() => import('@/components/SignaturePad'), { ssr: false });
+
+type ActiveMode = 'none' | 'placing-sig' | 'placing-text';
 
 export default function SignPage() {
   const router = useRouter();
@@ -13,8 +15,9 @@ export default function SignPage() {
   const [fileName, setFileName] = useState('document.pdf');
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [showPad, setShowPad] = useState(false);
-  const [isPlacingMode, setIsPlacingMode] = useState(false);
+  const [activeMode, setActiveMode] = useState<ActiveMode>('none');
   const [placedSigs, setPlacedSigs] = useState<PlacedSig[]>([]);
+  const [textAnnotations, setTextAnnotations] = useState<TextAnnotation[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
@@ -31,12 +34,12 @@ export default function SignPage() {
   const handleConfirmSignature = (dataUrl: string) => {
     setSignatureDataUrl(dataUrl);
     setShowPad(false);
-    setIsPlacingMode(true);
+    setActiveMode('placing-sig');
   };
 
   const handlePlace = useCallback((sig: PlacedSig) => {
     setPlacedSigs(prev => [...prev, sig]);
-    setIsPlacingMode(false);
+    setActiveMode('none');
   }, []);
 
   const handleUpdateSig = useCallback((index: number, x: number, y: number) => {
@@ -47,12 +50,24 @@ export default function SignPage() {
     setPlacedSigs(prev => prev.filter((_, i) => i !== index));
   }, []);
 
+  const handlePlaceText = useCallback((ann: TextAnnotation) => {
+    setTextAnnotations(prev => [...prev, ann]);
+  }, []);
+
+  const handleUpdateText = useCallback((index: number, x: number, y: number) => {
+    setTextAnnotations(prev => prev.map((t, i) => (i === index ? { ...t, x, y } : t)));
+  }, []);
+
+  const handleDeleteText = useCallback((index: number) => {
+    setTextAnnotations(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
   const handleDownload = async () => {
-    if (!pdfBytes || placedSigs.length === 0) return;
+    if (!pdfBytes || (placedSigs.length === 0 && textAnnotations.length === 0)) return;
     setIsDownloading(true);
     try {
-      const { embedSignatures } = await import('@/lib/embedSignature');
-      const signed = await embedSignatures(pdfBytes, placedSigs);
+      const { embedAll } = await import('@/lib/embedSignature');
+      const signed = await embedAll(pdfBytes, placedSigs, textAnnotations);
       const blob = new Blob([signed.buffer as ArrayBuffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -64,6 +79,16 @@ export default function SignPage() {
       setIsDownloading(false);
     }
   };
+
+  const totalAnnotations = placedSigs.length + textAnnotations.length;
+  const isPlacingMode = activeMode === 'placing-sig';
+  const isTextMode = activeMode === 'placing-text';
+
+  const modeHint = isPlacingMode
+    ? 'Click on the document to place your signature'
+    : isTextMode
+    ? 'Click on the document to add text'
+    : null;
 
   if (!pdfBytes) {
     return (
@@ -101,64 +126,80 @@ export default function SignPage() {
               </svg>
             </div>
             <span className="font-medium text-gray-900 text-sm truncate">{fileName}</span>
-            {placedSigs.length > 0 && (
+            {totalAnnotations > 0 && (
               <span className="flex-shrink-0 text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5">
-                {placedSigs.length} signature{placedSigs.length !== 1 ? 's' : ''}
+                {totalAnnotations} annotation{totalAnnotations !== 1 ? 's' : ''}
               </span>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-3 flex-shrink-0">
-          {isPlacingMode && (
-            <span className="text-sm text-indigo-600 font-medium hidden sm:block">
-              Click on the document to place your signature
-            </span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {modeHint && (
+            <span className="text-sm text-indigo-600 font-medium hidden md:block">{modeHint}</span>
           )}
 
-          {isPlacingMode ? (
+          {activeMode !== 'none' ? (
             <button
-              onClick={() => setIsPlacingMode(false)}
+              onClick={() => setActiveMode('none')}
               className="px-3 py-2 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg transition-colors"
             >
               Cancel
             </button>
           ) : (
-            <button
-              onClick={() => setShowPad(true)}
-              className="px-4 py-2 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
-            >
-              + Add Signature
-            </button>
+            <>
+              <button
+                onClick={() => setShowPad(true)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+                Signature
+              </button>
+              <button
+                onClick={() => setActiveMode('placing-text')}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Add Text
+              </button>
+            </>
           )}
 
           <button
             onClick={handleDownload}
-            disabled={placedSigs.length === 0 || isDownloading}
+            disabled={totalAnnotations === 0 || isDownloading}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {isDownloading ? 'Processing…' : 'Download Signed PDF'}
+            {isDownloading ? 'Processing…' : 'Download'}
           </button>
         </div>
       </header>
 
-      {/* Hint banner when placing */}
-      {isPlacingMode && (
-        <div className="bg-indigo-600 text-white text-sm text-center py-2 px-4 sm:hidden">
-          Click on the document to place your signature
+      {/* Mobile mode hint */}
+      {modeHint && (
+        <div className="bg-indigo-600 text-white text-sm text-center py-2 px-4 md:hidden">
+          {modeHint}
         </div>
       )}
 
-      {/* Document area */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-8">
         <PDFViewer
           pdfBytes={pdfBytes}
           placedSigs={placedSigs}
+          textAnnotations={textAnnotations}
           isPlacingMode={isPlacingMode}
+          isTextMode={isTextMode}
           signatureDataUrl={signatureDataUrl}
           onPlace={handlePlace}
           onUpdateSig={handleUpdateSig}
           onDeleteSig={handleDeleteSig}
+          onPlaceText={handlePlaceText}
+          onUpdateText={handleUpdateText}
+          onDeleteText={handleDeleteText}
         />
       </main>
 
