@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import type { PlacedSig, TextAnnotation } from '@/lib/embedSignature';
@@ -7,7 +7,17 @@ import type { PlacedSig, TextAnnotation } from '@/lib/embedSignature';
 const PDFViewer = dynamic(() => import('@/components/PDFViewer'), { ssr: false });
 const SignaturePad = dynamic(() => import('@/components/SignaturePad'), { ssr: false });
 
-type ActiveMode = 'none' | 'placing-sig' | 'placing-text';
+type ActiveMode = 'none' | 'placing-sig' | 'placing-text' | 'placing-date';
+
+function todayISO() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function formatDate(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+}
 
 export default function SignPage() {
   const router = useRouter();
@@ -19,6 +29,21 @@ export default function SignPage() {
   const [placedSigs, setPlacedSigs] = useState<PlacedSig[]>([]);
   const [textAnnotations, setTextAnnotations] = useState<TextAnnotation[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
+
+  // Date picker
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateValue, setDateValue] = useState(todayISO);
+  const datePickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (datePickerRef.current && !datePickerRef.current.contains(e.target as Node)) {
+        setShowDatePicker(false);
+      }
+    };
+    if (showDatePicker) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showDatePicker]);
 
   useEffect(() => {
     const base64 = sessionStorage.getItem('docsign_pdf');
@@ -91,11 +116,12 @@ export default function SignPage() {
   const totalAnnotations = placedSigs.length + textAnnotations.length;
   const isPlacingMode = activeMode === 'placing-sig';
   const isTextMode = activeMode === 'placing-text';
+  const isDateMode = activeMode === 'placing-date';
 
-  const modeHint = isPlacingMode
-    ? 'Click on the document to place your signature'
-    : isTextMode
-    ? 'Click on the document to add text'
+  const modeHint =
+    isPlacingMode ? 'Click on the document to place your signature'
+    : isTextMode ? 'Click on the document to add text'
+    : isDateMode ? 'Click on the document to place the date'
     : null;
 
   if (!pdfBytes) {
@@ -114,14 +140,9 @@ export default function SignPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
-      {/* Top bar */}
       <header className="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between sticky top-0 z-40 shadow-sm">
         <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={() => router.push('/')}
-            className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
-            title="Back to upload"
-          >
+          <button onClick={() => router.push('/')} className="text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0" title="Back">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
@@ -143,20 +164,15 @@ export default function SignPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {modeHint && (
-            <span className="text-sm text-indigo-600 font-medium hidden md:block">{modeHint}</span>
-          )}
+          {modeHint && <span className="text-sm text-indigo-600 font-medium hidden md:block">{modeHint}</span>}
 
           {activeMode !== 'none' ? (
-            <button
-              onClick={() => setActiveMode('none')}
-              className="px-3 py-2 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg transition-colors"
-            >
+            <button onClick={() => setActiveMode('none')} className="px-3 py-2 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg transition-colors">
               Cancel
             </button>
           ) : (
             <>
-              {/* Signature button — icon only on mobile */}
+              {/* Signature */}
               <button
                 onClick={() => setShowPad(true)}
                 className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
@@ -167,7 +183,8 @@ export default function SignPage() {
                 </svg>
                 <span className="hidden sm:inline">Signature</span>
               </button>
-              {/* Text button — icon only on mobile */}
+
+              {/* Text */}
               <button
                 onClick={() => setActiveMode('placing-text')}
                 className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
@@ -178,9 +195,43 @@ export default function SignPage() {
                 </svg>
                 <span className="hidden sm:inline">Text</span>
               </button>
+
+              {/* Date — with picker popover */}
+              <div className="relative" ref={datePickerRef}>
+                <button
+                  onClick={() => setShowDatePicker(p => !p)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+                  title="Add Date"
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span className="hidden sm:inline">Date</span>
+                </button>
+
+                {showDatePicker && (
+                  <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50 w-64">
+                    <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Select date</p>
+                    <input
+                      type="date"
+                      value={dateValue}
+                      onChange={e => setDateValue(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-indigo-300 mb-3"
+                    />
+                    <p className="text-xs text-gray-400 mb-3">Will appear as: <span className="text-gray-700 font-medium">{formatDate(dateValue)}</span></p>
+                    <button
+                      onClick={() => { setShowDatePicker(false); setActiveMode('placing-date'); }}
+                      className="w-full py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      Place on Document
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           )}
 
+          {/* Download */}
           <button
             onClick={handleDownload}
             disabled={totalAnnotations === 0 || isDownloading}
@@ -194,11 +245,8 @@ export default function SignPage() {
         </div>
       </header>
 
-      {/* Mobile mode hint */}
       {modeHint && (
-        <div className="bg-indigo-600 text-white text-sm text-center py-2 px-4 md:hidden">
-          {modeHint}
-        </div>
+        <div className="bg-indigo-600 text-white text-sm text-center py-2 px-4 md:hidden">{modeHint}</div>
       )}
 
       <main className="flex-1 overflow-y-auto p-4 sm:p-8">
@@ -208,6 +256,8 @@ export default function SignPage() {
           textAnnotations={textAnnotations}
           isPlacingMode={isPlacingMode}
           isTextMode={isTextMode}
+          isDateMode={isDateMode}
+          dateText={formatDate(dateValue)}
           signatureDataUrl={signatureDataUrl}
           onPlace={handlePlace}
           onUpdateSig={handleUpdateSig}
@@ -221,10 +271,7 @@ export default function SignPage() {
       </main>
 
       {showPad && (
-        <SignaturePad
-          onConfirm={handleConfirmSignature}
-          onCancel={() => setShowPad(false)}
-        />
+        <SignaturePad onConfirm={handleConfirmSignature} onCancel={() => setShowPad(false)} />
       )}
     </div>
   );

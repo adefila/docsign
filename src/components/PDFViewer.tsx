@@ -16,6 +16,8 @@ interface Props {
   textAnnotations: TextAnnotation[];
   isPlacingMode: boolean;
   isTextMode: boolean;
+  isDateMode: boolean;
+  dateText: string;
   signatureDataUrl: string | null;
   onPlace: (sig: PlacedSig) => void;
   onUpdateSig: (index: number, x: number, y: number) => void;
@@ -29,7 +31,7 @@ interface Props {
 
 export default function PDFViewer({
   pdfBytes, placedSigs, textAnnotations,
-  isPlacingMode, isTextMode, signatureDataUrl,
+  isPlacingMode, isTextMode, isDateMode, dateText, signatureDataUrl,
   onPlace, onUpdateSig, onResizeSig, onDeleteSig,
   onPlaceText, onUpdateText, onResizeText, onDeleteText,
 }: Props) {
@@ -84,12 +86,15 @@ export default function PDFViewer({
 
   const handleClick = (pageIndex: number, e: React.MouseEvent<HTMLDivElement>, displayScale: number) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    // getBoundingClientRect is in visual (scaled) space — divide by displayScale for canvas space
     const x = (e.clientX - rect.left) / displayScale;
     const y = (e.clientY - rect.top) / displayScale;
 
     if (isPlacingMode && signatureDataUrl) {
       onPlace({ pageIndex, x: x - SIG_W / 2, y: y - SIG_H / 2, width: SIG_W, height: SIG_H, dataUrl: signatureDataUrl, renderScale: RENDER_SCALE });
+      return;
+    }
+    if (isDateMode) {
+      onPlaceText({ pageIndex, x, y, text: dateText, fontSize: DEFAULT_FONT_SIZE, renderScale: RENDER_SCALE });
       return;
     }
     if (isTextMode) {
@@ -119,7 +124,7 @@ export default function PDFViewer({
     );
   }
 
-  const isActiveMode = isPlacingMode || isTextMode;
+  const isActiveMode = isPlacingMode || isTextMode || isDateMode;
 
   return (
     <div ref={wrapperRef} className="flex flex-col items-center gap-8 pb-12 w-full">
